@@ -62,6 +62,7 @@ from docling_core.types.doc.labels import (
     GraphCellLabel,
     GraphLinkLabel,
     GroupLabel,
+    HumanLanguageLabel,
     PictureClassificationLabel,
 )
 from docling_core.types.doc.tokens import DocumentToken, TableToken
@@ -72,6 +73,7 @@ _logger = logging.getLogger(__name__)
 
 Uint64 = typing.Annotated[int, Field(ge=0, le=(2**64 - 1))]
 LevelNumber = typing.Annotated[int, Field(ge=1, le=100)]
+CharSpan = Annotated[tuple[int, int], Field(description="Character span (0-indexed)")]
 CURRENT_VERSION: Final = "1.10.0"
 
 DEFAULT_EXPORT_LABELS = {
@@ -383,12 +385,28 @@ AnyTableCell = Annotated[
 ]
 
 
+class Orientation(str, Enum):
+    """Counter-clockwise rotation of a table on the page, in degrees.
+
+    Follows the convention used by PIL/Pillow's ``Image.rotate``: positive
+    angles rotate the table counter-clockwise. ``ROT_0`` / ``ROT_180`` keep
+    rows running horizontally on the page; ``ROT_90`` / ``ROT_270`` turn
+    rows into vertical stripes.
+    """
+
+    ROT_0 = "rot_0"  # no rotation; row 0 at top, rows horizontal
+    ROT_90 = "rot_90"  # 90° CCW; row 0 on the left, rows are vertical stripes
+    ROT_180 = "rot_180"  # 180°; row 0 at bottom (upside-down), rows horizontal
+    ROT_270 = "rot_270"  # 270° CCW (= 90° CW); row 0 on the right, rows are vertical stripes
+
+
 class TableData(BaseModel):  # TBD
     """BaseTableData."""
 
     table_cells: list[AnyTableCell] = []
     num_rows: int = 0
     num_cols: int = 0
+    orientation: Orientation = Orientation.ROT_0
 
     @computed_field  # type: ignore
     @property
@@ -575,15 +593,23 @@ class TableData(BaseModel):  # TBD
     def get_row_bounding_boxes(self, *, minimal: bool = True) -> dict[int, BoundingBox]:
         """Get the bounding box for each row in the table.
 
+        Layout follows the table's ``orientation`` field: ``ROT_0`` / ``ROT_180``
+        keep rows running left-to-right on the page; ``ROT_90`` / ``ROT_270``
+        turn rows into vertical stripes. This affects both the axis along which
+        span cells extend a row's bbox and, when ``minimal=False``, the axis
+        equalized across rows.
+
         Args:
             minimal: If True (default), returns the minimal bounding box for each
-                row based on its cells. If False, all rows will have uniform
-                horizontal extent (same x0/x1 values) spanning the full table width.
+                row based on its cells. If False, all rows will have a uniform
+                extent perpendicular to the row direction (l/r for ROT_0/ROT_180,
+                t/b for ROT_90/ROT_270).
 
         Returns:
             dict[int, BoundingBox]: A dictionary mapping row indices to their
             bounding boxes. Only rows with cells that have bounding boxes are included.
         """
+        horizontal = self.orientation in (Orientation.ROT_0, Orientation.ROT_180)
         coords = []
         for cell in self.table_cells:
             if cell.bbox is not None:
@@ -614,35 +640,68 @@ class TableData(BaseModel):  # TBD
                 min_row_span = min(row_cells_with_bbox.keys())
                 row_bbox: BoundingBox = BoundingBox.enclosing_bbox(row_cells_with_bbox[min_row_span])
 
+                # Spanning cells extend along the row's natural axis:
+                # horizontal table → row runs l/r; vertical table → row runs t/b.
                 for rspan, bboxs in row_cells_with_bbox.items():
                     for bbox in bboxs:
-                        row_bbox.l = min(row_bbox.l, bbox.l)
-                        row_bbox.r = max(row_bbox.r, bbox.r)
+                        if horizontal:
+                            row_bbox.l = min(row_bbox.l, bbox.l)
+                            row_bbox.r = max(row_bbox.r, bbox.r)
+                        else:
+                            if bbox.coord_origin == CoordOrigin.TOPLEFT:
+                                row_bbox.t = min(row_bbox.t, bbox.t)
+                                row_bbox.b = max(row_bbox.b, bbox.b)
+                            else:  # BOTTOMLEFT
+                                row_bbox.t = max(row_bbox.t, bbox.t)
+                                row_bbox.b = min(row_bbox.b, bbox.b)
 
                 row_bboxes[row_idx] = row_bbox
 
-        # If not minimal, make all rows have uniform horizontal extent
+        # If not minimal, make all rows have uniform extent on the axis
+        # perpendicular to the row direction.
         if not minimal and row_bboxes:
-            global_l = min(bbox.l for bbox in row_bboxes.values())
-            global_r = max(bbox.r for bbox in row_bboxes.values())
-            for bbox in row_bboxes.values():
-                bbox.l = global_l
-                bbox.r = global_r
+            if horizontal:
+                # Rows run left-to-right; equalize horizontal extent.
+                global_l = min(bbox.l for bbox in row_bboxes.values())
+                global_r = max(bbox.r for bbox in row_bboxes.values())
+                for bbox in row_bboxes.values():
+                    bbox.l = global_l
+                    bbox.r = global_r
+            else:
+                # Vertical table: rows are vertical stripes; equalize vertical extent.
+                first_bbox = next(iter(row_bboxes.values()))
+                if first_bbox.coord_origin == CoordOrigin.TOPLEFT:
+                    global_t = min(bbox.t for bbox in row_bboxes.values())
+                    global_b = max(bbox.b for bbox in row_bboxes.values())
+                else:  # BOTTOMLEFT
+                    global_t = max(bbox.t for bbox in row_bboxes.values())
+                    global_b = min(bbox.b for bbox in row_bboxes.values())
+                for bbox in row_bboxes.values():
+                    bbox.t = global_t
+                    bbox.b = global_b
 
         return row_bboxes
 
     def get_column_bounding_boxes(self, *, minimal: bool = True) -> dict[int, BoundingBox]:
         """Get the bounding box for each column in the table.
 
+        Layout follows the table's ``orientation`` field: ``ROT_0`` / ``ROT_180``
+        keep columns running top-to-bottom on the page; ``ROT_90`` / ``ROT_270``
+        turn columns into horizontal stripes. This affects both the axis along
+        which span cells extend a column's bbox and, when ``minimal=False``, the
+        axis equalized across columns.
+
         Args:
             minimal: If True (default), returns the minimal bounding box for each
-                column based on its cells. If False, all columns will have uniform
-                vertical extent (same y0/y1 values) spanning the full table height.
+                column based on its cells. If False, all columns will have a
+                uniform extent perpendicular to the column direction (t/b for
+                ROT_0/ROT_180, l/r for ROT_90/ROT_270).
 
         Returns:
             dict[int, BoundingBox]: A dictionary mapping column indices to their
             bounding boxes. Only columns with cells that have bounding boxes are included.
         """
+        horizontal = self.orientation in (Orientation.ROT_0, Orientation.ROT_180)
         coords = []
         for cell in self.table_cells:
             if cell.bbox is not None:
@@ -673,31 +732,46 @@ class TableData(BaseModel):  # TBD
                 min_col_span = min(col_cells_with_bbox.keys())
                 col_bbox: BoundingBox = BoundingBox.enclosing_bbox(col_cells_with_bbox[min_col_span])
 
+                # Spanning cells extend along the column's natural axis:
+                # horizontal table → column runs t/b; vertical table → column runs l/r.
                 for rspan, bboxs in col_cells_with_bbox.items():
                     for bbox in bboxs:
-                        if bbox.coord_origin == CoordOrigin.TOPLEFT:
-                            col_bbox.b = max(col_bbox.b, bbox.b)
-                            col_bbox.t = min(col_bbox.t, bbox.t)
-
-                        elif bbox.coord_origin == CoordOrigin.BOTTOMLEFT:
-                            col_bbox.b = min(col_bbox.b, bbox.b)
-                            col_bbox.t = max(col_bbox.t, bbox.t)
+                        if horizontal:
+                            if bbox.coord_origin == CoordOrigin.TOPLEFT:
+                                col_bbox.b = max(col_bbox.b, bbox.b)
+                                col_bbox.t = min(col_bbox.t, bbox.t)
+                            elif bbox.coord_origin == CoordOrigin.BOTTOMLEFT:
+                                col_bbox.b = min(col_bbox.b, bbox.b)
+                                col_bbox.t = max(col_bbox.t, bbox.t)
+                        else:
+                            col_bbox.l = min(col_bbox.l, bbox.l)
+                            col_bbox.r = max(col_bbox.r, bbox.r)
 
                 col_bboxes[col_idx] = col_bbox
 
-        # If not minimal, make all columns have uniform vertical extent
+        # If not minimal, make all columns have uniform extent on the axis
+        # perpendicular to the column direction.
         if not minimal and col_bboxes:
-            # Get the coord_origin from the first bbox (they're all the same)
-            first_bbox = next(iter(col_bboxes.values()))
-            if first_bbox.coord_origin == CoordOrigin.TOPLEFT:
-                global_t = min(bbox.t for bbox in col_bboxes.values())
-                global_b = max(bbox.b for bbox in col_bboxes.values())
-            else:  # BOTTOMLEFT
-                global_t = max(bbox.t for bbox in col_bboxes.values())
-                global_b = min(bbox.b for bbox in col_bboxes.values())
-            for bbox in col_bboxes.values():
-                bbox.t = global_t
-                bbox.b = global_b
+            if horizontal:
+                # Columns run top-to-bottom; equalize vertical extent.
+                # Get the coord_origin from the first bbox (they're all the same)
+                first_bbox = next(iter(col_bboxes.values()))
+                if first_bbox.coord_origin == CoordOrigin.TOPLEFT:
+                    global_t = min(bbox.t for bbox in col_bboxes.values())
+                    global_b = max(bbox.b for bbox in col_bboxes.values())
+                else:  # BOTTOMLEFT
+                    global_t = max(bbox.t for bbox in col_bboxes.values())
+                    global_b = min(bbox.b for bbox in col_bboxes.values())
+                for bbox in col_bboxes.values():
+                    bbox.t = global_t
+                    bbox.b = global_b
+            else:
+                # Vertical table: columns are horizontal stripes; equalize horizontal extent.
+                global_l = min(bbox.l for bbox in col_bboxes.values())
+                global_r = max(bbox.r for bbox in col_bboxes.values())
+                for bbox in col_bboxes.values():
+                    bbox.l = global_l
+                    bbox.r = global_r
 
         return col_bboxes
 
@@ -1209,7 +1283,7 @@ class ProvenanceItem(BaseModel):
 
     page_no: Annotated[int, Field(description="Page number")]
     bbox: Annotated[BoundingBox, Field(description="Bounding box")]
-    charspan: Annotated[tuple[int, int], Field(description="Character span (0-indexed)")]
+    charspan: CharSpan
 
 
 class BaseSource(BaseModel):
@@ -1361,21 +1435,80 @@ class SummaryMetaField(BasePrediction):
     text: str
 
 
+class LanguageMetaField(BasePrediction):
+    """Detected human language."""
+
+    code: HumanLanguageLabel
+
+
 # NOTE: must be manually kept in sync with top-level BaseMeta hierarchy fields
 class MetaFieldName(str, Enum):
     """Standard meta field names."""
 
     SUMMARY = "summary"  # a summary of the tree under this node
+    LANGUAGE = "language"  # detected language of the node content
+    ENTITIES = "entities"  # named entities extracted from the node content
     DESCRIPTION = "description"  # a description of the node (e.g. for images)
     CLASSIFICATION = "classification"  # a classification of the node content
     MOLECULE = "molecule"  # molecule data
     TABULAR_CHART = "tabular_chart"  # tabular chart data
 
 
+class EntityMention(BasePrediction):
+    """Entity mention extracted from text."""
+
+    text: Annotated[
+        str,
+        Field(description="Normalized text of the entity mention."),
+    ]
+    orig: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Exact source text extracted from the original charspan, "
+                "analogous to TextItem.orig. This may differ from 'text' when the "
+                "mention has been normalized."
+            )
+        ),
+    ] = None
+    label: Annotated[
+        Optional[str],
+        Field(description="Entity type or category."),
+    ] = None
+    charspan: Annotated[
+        Optional[CharSpan],
+        Field(description="Character span (0-indexed) of the entity mention in the source text."),
+    ] = None
+
+
+class EntitiesMetaField(_ExtraAllowingModel):
+    """Container for extracted entity mentions."""
+
+    mentions: Annotated[list[EntityMention], Field(min_length=1)]
+
+
 class BaseMeta(_ExtraAllowingModel):
     """Base class for metadata."""
 
     summary: Optional[SummaryMetaField] = None
+    language: Optional[LanguageMetaField] = None
+    entities: Optional[EntitiesMetaField] = None
+
+    def has_content(self) -> bool:
+        """Return True if this metadata contains any meaningful content."""
+        return any(self._value_has_content(value) for value in self.model_dump(exclude_none=True).values())
+
+    @staticmethod
+    def _value_has_content(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, list):
+            return any(BaseMeta._value_has_content(v) for v in value)
+        if isinstance(value, dict):
+            return any(BaseMeta._value_has_content(v) for v in value.values())
+        if isinstance(value, BaseModel):
+            return any(BaseMeta._value_has_content(v) for v in value.model_dump(exclude_none=True).values())
+        return True
 
 
 class DescriptionMetaField(BasePrediction):

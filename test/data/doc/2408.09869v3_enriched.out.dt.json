@@ -6394,6 +6394,7 @@
         ],
         "num_rows": 4,
         "num_cols": 8,
+        "orientation": "rot_0",
         "grid": [
           [
             {
@@ -6985,6 +6986,7 @@
         ],
         "num_rows": 2,
         "num_cols": 5,
+        "orientation": "rot_0",
         "grid": [
           [
             {
@@ -7155,6 +7157,7 @@
         "table_cells": [],
         "num_rows": 0,
         "num_cols": 0,
+        "orientation": "rot_0",
         "grid": []
       },
       "annotations": []
@@ -9245,6 +9248,7 @@
         ],
         "num_rows": 14,
         "num_cols": 12,
+        "orientation": "rot_0",
         "grid": [
           [
             {
@@ -13678,6 +13682,7 @@
         ],
         "num_rows": 14,
         "num_cols": 12,
+        "orientation": "rot_0",
         "grid": [
           [
             {

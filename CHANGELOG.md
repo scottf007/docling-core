@@ -1,3 +1,46 @@
+## [v2.78.0](https://github.com/docling-project/docling-core/releases/tag/v2.78.0) - 2026-05-29
+
+### Feature
+
+* Support vertical orientation in TableData row/column bounding boxes ([#622](https://github.com/docling-project/docling-core/issues/622)) ([`c1c9ea8`](https://github.com/docling-project/docling-core/commit/c1c9ea80a58feea6c11378d9c54ea02479da0c78))
+
+### Fix
+
+* **html-serializer:** Emit XHTML-compatible metadata attributes ([#613](https://github.com/docling-project/docling-core/issues/613)) ([`b20b567`](https://github.com/docling-project/docling-core/commit/b20b5677c06ea8cd5b025737e4621f92c6c6c020))
+* **chunking:** Handle empty TripletTableSerializer output without consuming children ([#596](https://github.com/docling-project/docling-core/issues/596)) ([`507df71`](https://github.com/docling-project/docling-core/commit/507df717c1e63e54de693cc164a2ae051e00e7f6))
+
+## [v2.77.1](https://github.com/docling-project/docling-core/releases/tag/v2.77.1) - 2026-05-26
+
+### Fix
+
+* Render RichTableCell descendants inside the cell ([#621](https://github.com/docling-project/docling-core/issues/621)) ([`01f8d03`](https://github.com/docling-project/docling-core/commit/01f8d03cda09ccb5ea0ba2c8c65cffd1858bdada))
+
+## [v2.77.0](https://github.com/docling-project/docling-core/releases/tag/v2.77.0) - 2026-05-19
+
+### Feature
+
+* Extending BaseMeta with language and entities for docling-agent ([#611](https://github.com/docling-project/docling-core/issues/611)) ([`9187158`](https://github.com/docling-project/docling-core/commit/9187158ef81fc4ae8e38c02e8466c78ad03dfd31))
+
+## [v2.76.0](https://github.com/docling-project/docling-core/releases/tag/v2.76.0) - 2026-05-18
+
+### Feature
+
+* Updated the table visualization ([#615](https://github.com/docling-project/docling-core/issues/615)) ([`b6c3d6f`](https://github.com/docling-project/docling-core/commit/b6c3d6fb1463df7d9d353028ea36d669fff1293e))
+
+## [v2.75.0](https://github.com/docling-project/docling-core/releases/tag/v2.75.0) - 2026-05-12
+
+### Feature
+
+* Updated the HTML serialization ([#609](https://github.com/docling-project/docling-core/issues/609)) ([`014948b`](https://github.com/docling-project/docling-core/commit/014948b0e86b34af36843479773ab2d7718bf7df))
+
+### Fix
+
+* **DocLang:** Fix chemistry serialization. ([#607](https://github.com/docling-project/docling-core/issues/607)) ([`48c5b97`](https://github.com/docling-project/docling-core/commit/48c5b97593defb632405b8351b1ba73dc5b057b6))
+
+### Documentation
+
+* **security:** Document security processes ([#606](https://github.com/docling-project/docling-core/issues/606)) ([`6a6512e`](https://github.com/docling-project/docling-core/commit/6a6512ebe48e88974117dcecbb29d41b66b9f8d0))
+
 ## [v2.74.1](https://github.com/docling-project/docling-core/releases/tag/v2.74.1) - 2026-04-22
 
 ### Fix
